@@ -1,0 +1,8 @@
+v 2.17
+d Materials by 连玉君, 康峻杰, 刘庆庆
+d arlionn@163.com
+d https://gitee.com/arlionn/lianxh
+
+d 'lianxh': `lianxh` 可以让你在 Stata 命令窗口中快速查询连享会发布的推文，获取 Stata 资源。
+
+p lianxh

@@ -1,0 +1,10 @@
+v 2.17
+d 'LIANXH': [连享会](https://www.lianxh.cn)资源汇总
+d 
+d `lianxh` 可以让你在 Stata 命令窗口中快速查询连享会发布的推文，获取 Stata 资源。
+d 
+d Distribution-Date:   20201122
+d License: MIT
+d 
+F lianxh.ado
+F lianxh.sthlp

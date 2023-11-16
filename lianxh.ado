@@ -1,530 +1,1580 @@
+*! version 1.2  16nov2023
+*! version 1.1  11apr2021
+*! Yujun Lian  arlionn@163.com
 
-*! Verion: 2.17
-*! Update: 2020/11/21 12:21
-*! https://www.lianxh.cn
-* Author: 连玉君 (Email: arlionn@163.com)
-*         康峻杰 (Email: 642070192@qq.com)
-*         刘庆庆 (Email: 2428172451@qq.com)
+//  Junjie Kang 642070192@qq.com
+//  Ruihan Liu  2428172451@qq.com
+//  https://www.lianxh.cn
 
-
-cap program drop lianxh
-program define lianxh
+// cap program drop lianxh
+program define lianxh, rclass
 
 version 14
 	
-syntax [anything(name = class)] [, ///
-        Mlink           ///   // - [推文标题](URL)
-	    MText           ///   //   [推文标题](URL)
-		Weixin          ///   // 推文标题  URL
-	    Saving(string)  ///   // 保存路径及文件名
-		CLS             ///   // 清屏后显示结果
-		NOCat           ///   // 不呈现推文分类信息  
-		Catfirst        ///   // 先整体列出分类信息，再统一列出推文信息
+syntax [anything] [,      ///  
+        Fields(string)    ///   // 检索字段
+        EXclude(string)   ///   // 需要排除的关键词 exclude(面板 DID); exclude(面板 DID +)
+        EXFields(string)  ///   // 指定排除关键词的检索字段
+        Hot(string)       ///   // 浏览量最大的 # 条, 不能与 New() 同时用
+        New(string)       ///   // 最新的 # 条
+        FRomto(string)    ///   // 时间范围, from(2021), from(2023-1 2023-5)
+        GSortby(string)   ///   // 指定排序变量, 支持 gsort. 设定此选项时自动加载 nocat 选项. {author, pubdate, click/view, catname, title} 
+        UPdata            ///   // 强制更新本地数据 lianxh_t_data
+        NOUPdata          ///   //   不更新本地数据, hide in help document
+        Simple            ///   // 极简风格. {title with link}
+        NUMlist           ///   // 显示推文序号. 设定此选项时自动加载 nocat 选项
+        Md                ///   // - Author, Year, [title](URL), jname No.#. 
+        md0               ///   // - [Author](url), Year, [title](URL), jname No.#.         
+        md1               ///   // - [title](URL)
+        md2               ///   // - Author, Year, [title](URL)
+        mdc               ///   // Author([Year](url_blog))
+        mdca              ///   // [Author](author_link)([Year](url_blog))  
+        mdnum             ///   // "1. xxx". instead of default: '- xxxx'. 设定此选项时自动加载 nocat 选项
+        Clicktimes        ///   // display click times
+        Date              ///   // display publish date        
+	    Latex             ///   // Author, Year, \href{URL}{title}, jname No.#.
+        lac               ///   // Author(\href{url_blog}{Year})
+		Weixin            ///   // Author, Year, title, URL, 
+		Text              ///   // same as 'weixin'
+        BRowse            ///   // display results in brower directly
+        View              ///   // view Markdown / text documents  
+        Jname(string)     ///   // default: 连享会推文           
+		CLS               ///   // 清屏后显示结果
+		NOCat             ///   // 不呈现推文分类信息  
+        NORange           ///   // 不呈现检索时段, rarely use
+        NOPreserve        ///   // 运行 lianxh 时，不执行 -preserve- 和 -restore-。当前内存中的数据会被替换为 lianxh.ado 产生的数据
+        SAVEtopwd         ///   // Save [_lianxh_temp_out_.md] at current directory. Default: Plus        
+        savedta(string)   ///   // save final .dta , do not show in help document 
+        LINKs             ///   // 呈现各类常用链接   
 	   ]
-	
-*===============================================================================
-* Part I: 无需爬虫的部分
+   
 
-*------------------------------------------------------------------------------*
-*- 预先设定option
-		
-	if "`cls'" != "" {
-		 cls
-	}
+  if "`nopreserve'" != ""{
+      local _preserve ""
+      local _restore  ""
+  }
+  else{ 
+      local _preserve "preserve"
+      local _restore  "restore"
+  }      
+      
+      
+`_preserve'  //~~~~~~~~~~~~~~~~~~~~~~~~ preserve begin ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-	if "`class'" == "" {  
+
+clear 
+
+   tokenize `"`0'"', parse(",")
+   local options `3'
+
+       
+*------------------
+*- 1 Checks and pre-setting
+*------------------
+    
+*-----------------  
+*-option conflicts and validity  
+  
+  *-md/latex/weixin/text 只能填一个
+    local formatoptions "`md' `mdc' `mdca' `md0' `md1' `md2' `latex' `lac' `weixin' `text'"
+    if wordcount("`formatoptions'")>1{
+        dis as error "Options conflict: only one of {cmd:md*} / {cmd:latex} / {cmd:lac} / {cmd:weixin} / {cmd:text} options is allowed"
+        exit
+    }
+   
+  *-updata / noupdata
+    if "`updata'" !="" & "`noupdata'" != ""{
+        dis as error "Options conflict: only one of {cmd:updata} / {cmd:noupdata} options is allowed"
+        exit  
+    }
+    
+  *-hot() and new() options
+   	if ("`new'"!=""){
+        if `new'<=0{
+            dis as error "invalid new(#): # must be a positive integer"
+            exit 198
+        }
+    } 
+    
+   	if ("`hot'"!=""){
+        if `hot'<=0{
+            dis as error "invalid hot(#): # must be a positive integer"
+            exit 198
+        }
+    }
+    
+    if "`new'" !="" & "`hot'" != ""{
+        di as err "{cmd:hot()} and {cmd:new()} options conflict. Note: you can use {cmd:fromto()} option to restrict the time range."
+        exit 198
+    }    
+    
+*-------------
+* basic 
+    
+ *-Clear Results window?
+   if "`cls'" != "" {
+   	   cls
+   }
+   
+ *-display common links   
+ 	if "`links'" != "" {  
 		 lianxh_links                    // sub-program
 		 exit
 	}
-
-	if "`class'" == "mybook" {
-		 dis _n in w  _col(6)  /// 
-		  `"{browse "https://quqi.com/s/880197/hmpmu2ylAcvHnXwY": [计量 Books] }"' 
-		 if "`weixin'" != "" {
-			dis "计量 Books: https://quqi.com/s/880197/hmpmu2ylAcvHnXwY "
-		 }
-		 exit
-	}
-	
-	if "`class'" == "sj" | "`class'"=="SJ"  {
-		 dis _n in w  _col(6)  /// 
-		  `"{browse "https://www.lianxh.cn/news/12ffe67d8d8fb.html": [Stata Journals] }"' 
-		  if "`weixin'" != ""{
-			dis "Stata Journals: https://www.lianxh.cn/news/12ffe67d8d8fb.html "
-		  }
-		 exit
-	}	
-	
-	if "`class'" == "33" | "`class'" == "my33" {
-		 dis _n in w  _col(6)  /// 
-		  `"{browse "https://gitee.com/lianxh/Stata33": [连享会公开课：Stata 33讲] }"' 
-		  if "`weixin'" != ""{
-		 	 dis  "连享会公开课：Stata 33讲: https://gitee.com/lianxh/Stata33 "
-		  }
-		 exit
-	}	
-	
-	if "`class'" == "mylink"  {
-		 dis _n in w  _col(6)  /// 
-		  `"{browse "https://www.lianxh.cn/news/9e917d856a654.html": [Super Links] }"' 
-		  if "`weixin'" != "" {
-		     dis "Super Links: https://www.lianxh.cn/news/9e917d856a654.html"
-		  }
-		 exit
-	}
-	
-	if "`class'" == "mypaper"  {
-		 dis _n in w  _col(6)  /// 
-		  `"{browse "https://www.lianxh.cn/news/e87e5976686d5.html": [论文重现网站] }"' 
-		  if "`weixin'" != ""{
-			 dis "论文重现网站: https://www.lianxh.cn/news/e87e5976686d5.html"
-		  }
-		 exit
-	}
-	
-	if "`class'" == "myopen"  {
-		 dis _n in w  _col(6)  /// 
-		  `"{browse "https://gitee.com/arlionn/Course": [连享会课程] }"' 
-		  if "`weixin'" != ""{
-			 dis "连享会课程: https://gitee.com/arlionn/Course " 
-		  }
-		 exit
-	}
-
-*- 存储路径处理	
-	if `"`saving'"'~="" {
-	  *-split file path and fileanme
-		local saving = subinstr(`"`saving'"',`"""',"",.)  // 去掉路径中的 ["]
-		local saving = subinstr(`"`saving'"',"\","/",.)   // 把 [\] 换成 [/],保持跨平台通用性
-		
-		local path_reverse = ustrreverse("`saving'")   //将用户输入颠倒，提取第一个/来分割路径和文件名
-		local index_fullname = index(`"`path_reverse'"',"/")
-		if `index_fullname' ~= 0{
-			local path   = ustrreverse(substr(`"`path_reverse'"',`=`index_fullname'+1',.))
-			local saving = ustrreverse(substr(`"`path_reverse'"',1,`=`index_fullname'-1'))
-		}
-		else {
-			local path `c(pwd)'
-		}
-	  *-split file mainname and suffixname
-		local beg_dot = index(`"`saving'"',".")
-		if `beg_dot'~=0 {
-			local suffixname = substr(`"`saving'"',`=`beg_dot'+1',.)
-			if ~inlist("`suffixname'","txt","csv","md"){
-			   noi dis in red "Only [.txt .csv .md] files are supported by {opt saving()}"
-			   exit 
-			}
-			local mainname = substr(`"`saving'"',1,`=`beg_dot'-1')
-		}
-		else {
-			local mainname `"`saving'"'
-			local suffixname = "md"
-		}
-		local saving `"`mainname'.`suffixname'"'
-		
-	  *-检查输入的路径是否存在	
-		local path_origin `c(pwd)' //存储用户路径
-		cap cd `"`path'"'			
-		if _rc {
-			local saving ""        //相当于取消掉用户saving的输入，避免下文出现找不到文件的错误
-			local path_warn "1"    //存储报错暂元，在程序末尾进行报错并返回提示信息
-		}
-		cap cd `path_origin'       //恢复用户路径		
-	}	
+    
+ *-{without any options} & {'browse' option}         depend-sub: lianxh_br.ado
+ * and 
+ * <anything = '[key1] or [key2] or ...'> (only OR, without AND)
+//     cls
+//     local anything "DID RDD 面板数据"  
+//     local 2 "br" 
+   
+   local No_AND = (strpos(`"`anything'"', "+")==0)
+   if (`No_AND'==0) & (strpos("`options'", "br")>0){
+       local anything = subinstr(`"`anything'"', "+", " ", .)
+       dis as text "Note: '+' is ignored when option {cmd:browse} is specified"
+   }
+   
+   local Only_browse = (strpos("`options'", "br")>0) & wordcount("`options'")==1 
+   if (`Only_browse'==1) & (`No_AND'==1){  // only 'browse' option + no '+'
+  
+       lianxh_br `"`anything'"', br max(3)           // lianxh_br.ado >>>>>>
+      
+       dis `"Note: you can search keywords at {browse "https://www.lianxh.cn":www.lianxh.cn}"'
+      
+       if wordcount(`"`anything'"') > 4{
+           dis as smcl _c `"type {stata "lianxh `anything', text"} or {stata "lianxh `anything', md"} to print all results as a whole"'
+       }
+      
+       exit 
+   }
 
   
-*==============================================================================*
-* Part II: 爬取 lianxh.cn/blogs 网页
 
-	preserve
+*----------------------------------
+*- download data from www.lianxh.cn using 'insheetjson.ado'
+*----------------------------------
 
-	clear    // 避免变量与用户变量冲突
-
-	tempfile            ///
-	         lxh_BlogTitle    ///
-	         catID_dta        ///
-			 CatIDnew_data    ///
-			 catSort          ///
-			 Final_data       ///
-			 outcome          ///
-			 mycovs1          ///
-			 
-
-
-	*------------------------------------------------------------------------*
-	***正则表达式抽取网址 标题 分类标签等***
-	
-	qui{	
-		local URL "https://www.lianxh.cn/blogs.html" 
-
-		tempfile  html_text   HTML_text_dta   catID_dta
-		
-		capture copy `"`URL'"' "`html_text'.txt", replace   
-		local times = 0
-		while _rc ~= 0 {
-			local times = `times' + 1
-			sleep 1000
-			cap copy `"`URL'"' "`html_text'.txt", replace
-			if `times' > 10 {
-				disp as error "Internet speeds is too low to get the data"
-				exit 601
-			}
-		}
-	}
-
-	
-	qui{
-		infix strL v 1-1000 using "`html_text'.txt", clear
-		save "`HTML_text_dta'", replace
-		
-		*- 抽取原始链接
-		local regex    = `"(?<="><a href=")(.*)(?=")"' 
-		* 以 「"><a href="」开头，「"」结尾的字符串 
-		gen BlogURL     = ustrregexs(0) if ustrregexm(v, `"`regex'"')
-		replace BlogURL = "https://www.lianxh.cn" + BlogURL if BlogURL!=""
-		
-		*- 抽取标题
-		local regex   = `"(?<=html">)(.+)(?=</a></h3>)"'
-		gen BlogTitle = ustrregexs(0) if ustrregexm(v, `"`regex'"')
-		
-		*- 抽取分类标签
-		local regex = `"(<span>)(\D.*)(?:</span>)"'  
-		gen CatName = ustrregexs(2) if ustrregexm(v, `"`regex'"')	
-		drop if ustrregexm(CatName, "(data\[item\])")
-		keep if (BlogURL !="" | CatName!="")
-		replace CatName = CatName[_n+1] if CatName==""
-		keep if BlogTitle !=""
-		drop v
-		drop if ustrregexm(BlogTitle, "(data\[item\])")
-		format BlogTitle %-60s
-		gen id = _n         // 推文发表时间序号
-		save "`lxh_BlogTitle'", replace 	
-		
-
-		use "`HTML_text_dta'", clear
-		local regex = `"(?<=/blogs/)\d+(?=\.html)"'
-		gen catID_str   = ustrregexs(0) if ustrregexm(v, `"`regex'"')  // 分类编号
-
-		keep if catID_str != ""
-		local regex = `"(?<=\s>).+(?=</a>)"'
-		gen CatName = ustrregexs(0) if ustrregexm(v, `"`regex'"')  // 分类名称
-		drop v 
-		destring catID_str, gen(catID)
-					
-		gen CatIDnew = .
-		
-		replace CatIDnew = 0.01   if catID == 44
-		replace CatIDnew = 0.02	  if catID == 34
-		replace CatIDnew = 0.03	  if catID == 31
-		replace CatIDnew = 0.1	  if catID == 43
-		replace CatIDnew = 0.08	  if catID == 16
-		replace CatIDnew = 0.09	  if catID == 17
-		replace CatIDnew = 0.04	  if catID == 18
-		replace CatIDnew = 0.11	  if catID == 35
-		replace CatIDnew = 0.12	  if catID == 25
-		replace CatIDnew = 0.13	  if catID == 24
-		replace CatIDnew = 0.14	  if catID == 26
-		replace CatIDnew = 0.17	  if catID == 22
-		replace CatIDnew = 0.21	  if catID == 32
-		replace CatIDnew = 0.22	  if catID == 20
-		replace CatIDnew = 0.24	  if catID == 38
-		replace CatIDnew = 0.26	  if catID == 39
-		replace CatIDnew = 0.28	  if catID == 40
-		replace CatIDnew = 0.3	  if catID == 41
-		replace CatIDnew = 0.32	  if catID == 42
-		replace CatIDnew = 0.43	  if catID == 19
-		replace CatIDnew = 0.45	  if catID == 21
-		replace CatIDnew = 0.47	  if catID == 28
-		replace CatIDnew = 0.49	  if catID == 29
-		replace CatIDnew = 0.51	  if catID == 27
-		replace CatIDnew = 0.61	  if catID == 36
-		replace CatIDnew = 0.63	  if catID == 37
-		replace CatIDnew = 0.96	  if catID == 45
-		replace CatIDnew = 0.97	  if catID == 30
-		replace CatIDnew = 0.98	  if catID == 23
-		replace CatIDnew = 0.99	  if catID == 33	
-			
-		save "`catID_dta'", replace  // 临时保存文件，随后与主文件合并 
-      		  
-		use "`catID_dta'", clear	
-		merge 1:m CatName   using "`lxh_BlogTitle'", nogen 
-			
-			
-		*----根据 mlink mtext weixin 等选项设定这里的格式 
-
-		local url "https://www.lianxh.cn/blogs/"
-		gen CatURL = "`url'" + catID_str + ".html"
-		gen CatNameURL_md = "[" + CatName + "](" + CatURL + ")"
-
-		gen blog_Mlink = "- [" + BlogTitle + "](" + BlogURL + ")"  // list
-		gen blog_Mtext =  " [" + BlogTitle + "](" + BlogURL + ") " // list2
-		gen blog_Weixin= BlogTitle + ": " + BlogURL
-
-		gen blog_br = `"{browse ""' + BlogURL +`"": "' + BlogTitle +`"}"'           
-		gen Cat_br  = `"{browse ""' + "`url'" + catID_str +`"": "' + CatName +`"}"' 
-
-
-		*-后续检索关键词不区分大小写
-		replace BlogTitle = lower(BlogTitle)  
-
-		save "`Final_data'", replace
-
-		*- 前期数据处理完毕	
-	}
-
-	
-	
-*==============================================================================*
-**** 输入变量识别 ****
+    local plus_dir "`c(sysdir_plus)'l"          // dir/path of PLUS folder
+    local plus_dir = subinstr(`"`plus_dir'"', "\", "/", .)          // For Mac
+   
+    *cap confirm file `"`plus_dir'/_lianxh_full_data.dta"'
+    qui cap des using `"`plus_dir'/_lianxh_full_data.dta"'
     
-	qui use  "`Final_data'", clear
-	
-	*------------------------------------------------------------------------*
-	***class识别***
-
-	if "`class'" == "mylist" {
-		sort CatIDnew id
-		qui egen tag = tag(CatName)
-		qui gen id_temp = _n
-		qui expand 2 if tag==1, gen(tag_expand)  
-		*-分类标题
-		qui replace blog_Mlink = "## " + CatName  if tag_expand==1 
-		gsort id_temp -tag -tag_exp
-	
-		local date = subinstr("`c(current_date)'"," ","",3)
-		qui {
-			insobs 4, before(1)  //增加几行观察值，以便写大标题
-			replace id = -9 in 1
-			replace id = -8 in 2
-			replace id = -7 in 3
-			replace id = -6 in 4 
-			
-			replace blog_Mlink = "## 连享会 - 推文列表" if id==-9
-			replace blog_Mlink = "> &emsp;     " if id==-8
-			replace blog_Mlink = "> &#x231A; Update: ``date'` &emsp;  &#x2B55; [**按时间顺序查看**](https://www.lianxh.cn/news/451e863542710.html)  " if id==-7
-			replace blog_Mlink = "> &emsp;     " if id==-6
-		}
-		*local date = subinstr("`c(current_date)'"," ","",3)
-		
-		if "`saving'" == ""{
-			local path `c(pwd)'
-			local saving "连享会主页_推文列表-分类_`date'.md"
-		}
-        local n = _N
-		forvalues j = 1/`n' {
-			if tag_expand[`j']==1{
-			   dis " 专题 >>" Cat_br[`j']
-			}
-			else{
-			   dis "	" blog_br[`j']				
-			}
-		}
-		dis _n _c
-		export delimited blog_Mlink using "`path'/`saving'" , ///
-			   novar nolabel delimiter(tab) replace
-		local save "`saving'"   
-	   
-		noi dis _n ///
-				_col(5)  `"{stata `" view  "`path'/`save'" "': View}"' ///
-				_col(17) `"{stata `" !open "`path'/`save'" "' : open_Mac}"' ///
-				_col(30) `"{stata `" winexec cmd /c start "" "`path'/`save'" "' : open_Win}"'
-
-		noi dis _col(10) `"{browse `"`path'"': dir}"'		
-		exit
-	}
-	  
-	else if "`class'" == "all" {
-		qui duplicates drop CatName, force
-		sort CatIDnew
-		local n = _N
-		dis _col(30) `"{browse "https://www.lianxh.cn/news/d4d5cd7220bc7.html": - 分类查看所有推文 - }"' _n
-        
-         local G = 4               // 每行显示个数
-         local N = _N              // 类别数
-         local NN = ceil(`N'/`G')  // 行数
-        
-        local i = 1
-        forvalues row = 1/`NN'{
-           forvalues j=0/`=`G'-1'{
-              if mod(`i',`G')==0{
-                 local newline "_n"
-              }   
-              else{
-                 local newline ""
-              }
-              local colpos = `j'*25
-              dis _col(`colpos') Cat_br[`i++'] _c `newline'
-           }
+    if _rc{
+        // download newest data
+        cap lianxh_get_data                      // lianxh_get_data.ado >>>>>>                 
+        if _rc{
+            _error_fail_download 
         }
-		exit
-	}	
-	if ustrregexm(`"`class'"', "\+") != 0 {
-		local class_c       = lower("`class'")
-		while ustrregexm(`"`class_c'"', "\+"){
-			local class_c   =  ustrregexrf(`"`class_c'"',"\+"," ")
-		}
-		foreach name in `class_c'{
-			qui gen index_`name' = ustrregexm(BlogTitle,`"`name'"')
-			qui keep if index_`name' ==1
-		}
-		sort CatIDnew id
-		local n = _N
-		if `n' > 0{
-			dis " 专题 >>" Cat_br[1] 
-		}
-		forvalues j = 1/`n' {
-			if (`j'>1) & (Cat_br[`j'] != Cat_br[`j'-1]) {
-			   dis " 专题 >>" Cat_br[`j']
-			}
-			dis "	"blog_br[`j']				
-		}
-		cap save "`outcome'", replace
-	}	
-	else{
-		// 空格情况，取并集
-		qui gen code = 0
-		foreach name in `class'{
-			local name = lower("`name'")
-			qui gen index_`name' = ustrregexm(BlogTitle,`"`name'"')
-			qui replace code = code + index_`name'
-		}
-		qui keep if code != 0
-		sort CatIDnew id
-		local n = _N
-		if `n' > 0 {
-			dis " 专题 >>" Cat_br[1] 
-		}
-		forvalues j = 1/`n' {
-			if (`j'>1) & (Cat_br[`j'] != Cat_br[`j'-1]) {
-			    dis _n " 专题 >>" Cat_br[`j'] 
-			}
-			dis "	" blog_br[`j']				
-		}
-		qui save "`outcome'", replace
+    }
+    else{
+        if "`noupdata'" ==""{
+            if `c(stata_version)'<=15{           // for version <= Stata 15.0
+                check_data_15
+                local need_up = (`r(is_new)'==0)
+            }
+            else{                                // for version > Stata 15.0
+                qui describe using `"`plus_dir'/_lianxh_full_data.dta"'
+                local need_up = ("`r(datalabel)'" != "`c(current_date)'")
+            }
+
+            if (`need_up') | ("`updata'" != "") | ("`new'" != ""){ // check data version 
+                cap lianxh_get_data    // download newest data
+                if _rc{
+                    _error_fail_download 
+                }
+            }
+        }
+    }
+
+   
+*-------------
+*-load dataset 
+
+  qui use `"`plus_dir'/_lianxh_full_data.dta"', clear 
+
+  
+*------------------
+*-auto-update lianxh.ado?
+*------------------
+
+  if "$lianxh_update_" != "1"{
+      lianxh_check_update
+      global lianxh_update_ = "1"
+  }
+
+*------------------
+*- check gsortby() option
+*------------------
+* varlist: author, pubdate, click/view, catname, title 
+  if `"`gsortby'"' !="" & strpos(`"`gsortby'"', "-"){
+      local _gsort = subinstr(`"`gsortby'"', "-", "", .)
+      cap ds `_gsort'
+      if _rc{
+          noi ds `_gsort'
+      }
+  }
+
+
+  
+*------------------
+*- time range          
+*------------------
+
+* fromto(2021-10-1 2023-10-1) | fromto(2021/10/1, 2023-10-1)
+* fromto(2021-10   2023-1)
+* fromto(2021-10)
+* fromto(2021)
+/* examples of tfromto.ado package
+    view browse "https://gitee.com/arlionn/stata/wikis/adofile/tfromto-test.md"
+*/
+
+if `"`fromto'"' != ""{
+
+    qui lianxh_fromto `"`fromto'"' // check and re-format time range                 
+    local range_t "`r(range1)'" 
+    qui keep if inrange(pubdate, `r(t0)', `r(t1)')
+   
+    if _N == 0{
+        dis as error "Invalid syntax for time range, or no blogs found in this time range."
+        exit
+    }
+    else{
+        if "`norange'"== ""{
+            dis _col(3) "Time Range: `range_t'"
+        }
+    }    
+}
+
+ 
+*-----------------  
+*-Search fields
+*-----------------     
+
+ *-excluding   
+   if "`exclude'" != ""{
+       qui lianxh_fields `exfields', gen(exvar)
+       qui lianxh_exclude exvar, ex(`"`exclude'"')
+       
+       _check_no_obs
+       
+   }
+  
+ *-selecting 
+   if `"`anything'"' != ""{
+       qui lianxh_fields `fields', gen(svar)
+       local _fields = r(fields)              // to be returned 
+       qui lianxh_select svar, sel(`"`anything'"')
+       
+       _check_no_obs
+       
+   }
+
+
+*------------------
+*- new(#)
+*------------------
+* #>_N  list all blogs, show hint. (列出所有结果，给出提示)
+* #<0   error msg (报错)
+
+if "`new'" != ""{ 
+	if `new'>_N{
+        local Num = _N
+        dis as text "Note: `new' exceed the maximum number of blogs, -new(`Num')- used"
+        local new = `Num'
+    } 
+    
+    gsort -pubdate
+    
+    if `new'>0{
+        qui keep in 1/`new'
+    }
+    
+    _check_no_obs
+}
+
+
+*------------------
+*- hot(#)
+*------------------
+* #>_N  list all blogs, show hint. (列出所有结果，给出提示)
+* #<0   error msg (报错)
+
+if "`hot'" != ""{
+	if `hot'>_N{
+        local Num = _N
+        dis as text "Note: only `Num' blogs are found, -hot(`Num')- used"
+        local hot = `Num'
+    }  
+    
+    gsort -view
+    
+    if `hot'>0{
+        qui keep in 1/`hot'
+    }
+     
+    _check_no_obs
+}
+
+
+
+*------------------
+*- format Author name and gen author_link
+*------------------
+
+// 1. 把多个作者中间的多余空格，中文逗号，|，分号之类的字符替换为半角逗号
+// 2. 产生一个新变量，包含作者链接
+
+qui{  //----------------------------------qui ----------01------
+    replace author = ustrregexra(author, "[，；\|]", ",", 1)
+    replace author = ustrregexra(author, "\s\s", " ")
+    replace author = ustrtrim(author)
+    gen Is_author_valid = (!ustrregexm(author,"[，、!\(\)（）\|]+"))
+    
+    *-Author link
+    if "`md0'`mdca'" != ""{
+        split author if Is_author_valid==1, parse(`", "') gen(_author)
+        local k_new = r(nvars)   // stata 17: local k_new = r(k_new)
+        local site "https://www.lianxh.cn/search.html?s="
+        forvalues j = 1/`k_new'{
+            replace _author`j' = "[" + _author`j' + "]" + "(" + `"`site'"' + _author`j' + ")"  ///
+                    if (_author`j'! = "")&(Is_author_valid==1)
+        }
+        gen author_link = _author1  if Is_author_valid==1
+        forvalues j = 2/`k_new'{
+            replace author_link = author_link + ", " + _author`j' ///
+                    if (_author`j'! = "")&(Is_author_valid==1)
+        } 
+    }
+}  //----------------------------------qui ----------01---over---
+
+
+
+
+*------------------
+*- Display
+*------------------
+
+*-------------
+*- series name
+
+  if "`jname'" == ""{  // Series Name, eg. 连享会推文 No.135
+      local jname "连享会"   // 连享会推文
+      local No " No."
+  }
+  else if "`jname'" == "null"{
+      local jname ""
+      local No "No."
+  }
+  else{
+      local No " No."
+  }
+  local jname_No `", `jname'`No'"'
+
+
+*-------------  
+*-click times 
+
+  if ("`clicktimes'" != "") | ("`hot'" != ""){ 
+      gen _clickStr = string(view) 
+      label var _clickStr "点击次数(文字)"
+      local hot_new  `" + "  Hits: " + _clickStr"'
+      local click_yes = 1
+  }
+  else{
+      local click_yes = 0
+  }
+  
+*-------------  
+*-pubdates
+
+  if ("`date'" != "") | ("`new'" != ""){ 
+      local hot_new  `" + "  " + pubtime"'
+      local pubdate_yes = 1
+  }
+  else{
+      local pubdate_yes = 0
+  }
+
+*-------------  
+*-click times & date
+  
+  if (`click_yes'==1) & (`pubdate_yes'==1) { 
+      local hot_new  `" + "  " + pubtime + ", Hits: " + _clickStr"'
+  }
+
+
+*------------- setting display FORMAT --------------
+
+//    Md                ///   // - Author, Year, [title](URL), jname No.#. 
+//    mdc               ///   // Author ([Year](url_blog))
+//    mdca              ///   // [Author](au_url) ([Year](url_blog))
+//    md0               ///   // - [Author](au_url), Year, [title](URL), jname No.#.         
+//    md1               ///   // - [title](URL)
+//    md2               ///   // - Author, Year, [title](URL).
+//    Latex             ///   // Author, Year, \href{URL}{title}, jname No.#.
+//    lac               ///   // Author (\href{url_blog}{Year})
+//    Weixin            ///   // Author, Year, title, URL, 每隔 8 行空一行
+//    Text              ///   // Author, Year, title, URL, 不空行
+
+
+*-Default format: show results in Results Window
+  
+  local dis_opt "`md'`mdc'`mdca'`md0'`md1'`md2'`latex'`lac'`weixin'`text'"
+  
+  if ("`dis_opt'" ==""){  
+      gen _Cat_br = `">>专题：{browse ""' + url_cat +`"": "' + catname +`"}"'
+      if "`simple'" != ""{
+          gen _BlogDis = `"{browse ""' + url_blog +`"":"' + title +`"}"'`hot_new'
+      }
+      else{  // default
+          gen _BlogDis = author + ", " + year + `", {browse ""' + url_blog +`"":"' + title +`"}"'`hot_new'
+      }
+  }
+  
+*-numlist 
+  if "`numlist'" != ""{
+      local nocat "nocat"
+  }  
+  
+  
+*-Weixin / Text
+
+  if ("`text'`weixin'" !=""){
+      gen _Cat_br = `">>专题："' + catname + " " + url_cat
+      gen _BlogDis = author + ", " + year + ", " + title + ". " + url_blog `hot_new'
+  }
+  
+  
+*-Markdown 
+
+  if "`mdnum'" == ""{
+      local item `"- "'
+  }
+  else{
+      local item `"1. "'
+      local nocat "nocat"
+  }
+  
+
+  if "`md'`md0'`mdca'`md1'`md2'" != ""{
+      local cat_br_md `""- 专题：[" + catname + "](" + url_cat  + ")""'
+      gen _Cat_br   = `cat_br_md'  
+      gen _title_link  = "[" + title   + "](" + url_blog + ")"
+  }
+  if "`md'" !=""{
+      gen _BlogDis = "`item'" + author      + ", " + year + ", " + _title_link  + `"`jname_No'"' + id + "." `hot_new'
+  }
+  if "`md0'" !=""{
+      gen _BlogDis = "`item'" + author_link + ", " + year + ", " + _title_link  + `"`jname_No'"' + id + "." `hot_new'
+  }
+  if "`md1'" !=""{
+      gen _BlogDis = "`item'" + _title_link  `hot_new'
+  }
+  if "`md2'" !=""{
+      gen _BlogDis = "`item'" + author + ", " + year + ", " + _title_link  + "." `hot_new'
+  }
+  if "`mdc'" !=""{   // Author([Year](blogurl))
+      *gen _Cat_br = `">>专题："' + catname + " " + url_cat
+      gen year_link = " ([" + year + "](" + url_blog + "))"  // ([2022](blogurl))
+      gen _BlogDis = author + year_link
+  }
+  if "`mdca'" !=""{  // [Author](author_link)([Year](blogurl))
+      *gen _Cat_br = `">>专题："' + catname + " " + url_cat
+      gen year_link = " ([" + year + "](" + url_blog + "))"  // ([2022](blogurl))
+      gen _BlogDis = author_link + year_link
+  }
+
+  
+*-LaTeX
+
+  if "`latex'" != ""{    
+      gen _Cat_br   = "- \href{" + url_cat  + "}" + "{" + catname + "}"
+      gen _title_link  = "\href{" + url_blog + "}" + "{" + title   + "}"
+      gen _BlogDis = "- " + author + ", " + year + ", " + _title_link  + `"`jname_No'"' + id + "." `hot_new'
+  }
+  if "`lac'" != ""{
+      gen _Cat_br = `">>专题："' + catname + " " + url_cat
+      gen year_link = "\href{" + url_blog + "}" + "{(" + year   + ")}"
+      gen _BlogDis = author + year_link
+  }
+  
+
+*-sort   
+
+  gsort catname author title -pubdate
+  egen _tag = tag(catname)
+  local N = _N
+  dis "  " //_c
+
+  if ("`hot'" != ""){
+      gsort -view
+  }
+  else if "`new'" != ""{
+      gsort -pubdate
+  }
+  else if "`gsortby'" != ""{
+      gsort `gsortby'
+      local nocat "nocat"    // 设定 gsortby 选项后，不再呈现分类列表
+  }
+  else{
+      gsort catname author title -pubdate    
+  }
+
+      
+*------------------
+*- Display
+*------------------
+        
+forvalues i = 1/`N'{
+
+    if "`nocat'" == "" & _tag[`i'] ==1{
+        if (("`weixin'`text'" != "") | ("`dis_opt'" =="")) & ("`hot'`new'" == "") & (`i'!=1){
+            dis " "
+        } 
+        if "`hot'`new'`mdc'`mdca'" == ""{
+            dis _Cat_br[`i']
+        }
+    }
+    
+    if ("`hot'`new'" == "" | ("`dis_opt'" !="")) & ("`numlist'" == ""){
+            dis _col(3)         _BlogDis[`i'] 
+    }
+    else{
+            dis _col(3) "`i'. " _BlogDis[`i'] 
+    }    
+}
+
+
+*---- Export 
+
+if "`dis_opt'" != ""{
+    qui{             //----------------------------------qui --------02------
+        if ("`mdc'`mdca'" == "") & ("`nocat'" == "") {  
+            gen _tag2 = _tag + 1 if _tag==1
+            expand _tag2, gen(orig)
+            replace _BlogDis = "" if orig==1
+            replace _BlogDis = "  " + _BlogDis if _BlogDis != "" 
+            replace _BlogDis = _Cat_br if _BlogDis == "" 
+            gsort _Cat_br -orig  author title          // gsort  
+        }
+    }                //----------------------------------qui --------02--over--
+    
+  *-export: path and filename   
+	if "`savetopwd'" == ""{
+        local path `plus_dir'
+    }
+    else{
+        local path `"`c(pwd)'"'
+		local path = subinstr(`"`path'"', "\", "/", .)
+    }
+        
+    local dis_opt_md  "`md'`mdc'`mdca'`md0'`md1'`md2'"
+    local dis_opt_txt "`latex'`lac'`weixin'`text'"
+    
+    if "`dis_opt_md'" != ""{
+        local fn_suffix ".md"
+    }
+    if "`dis_opt_txt'" != ""{
+        local fn_suffix ".txt"
+    }
+    
+	local saving "_lianxh_temp_out_`fn_suffix'"
+        
+    qui export delimited _BlogDis using `"`path'/`saving'"' , ///
+    	       novar nolabel delimiter(tab) replace
+    local save "`saving'"   
+    	    noi dis " "
+    		noi dis _dup(58) "-" _n ///
+    				_col(3)  `"{stata `" view  "`path'/`save'" "': View}"' ///
+    				_col(17) `"{stata `" !open "`path'/`save'" "' : Open_Mac}"' ///
+    				_col(30) `"{stata `" winexec cmd /c start "" "`path'/`save'" "' : Open_Win}"' ///
+                    _col(50) `"{browse `"`path'"': dir}"'
+            noi dis _dup(58) "-"
+    
+    if "`view'"!=""{  // ("`md'`latex'`text'`weixin'" != "") & 
+        view  "`path'/`save'"
+    } 
+	
+	return local doc `"`path'/`save'"'
+}
+
+
+*--------
+* save Stata dataset   (do not show in Help document)
+  
+  cap drop orig
+
+  if `"`savedta'"' != ""{
+  
+      qui compress 
+      cap noi save `"`savedta'"', replace 
+	  
+	  return local dta `"`savedta'"'
+  }
+
+
+
+*--------
+* Return values 
+
+  return scalar n = _N
+  
+  return local keywords = `"`anything'"'
+  
+  if `"`anything'"' != ""{
+      return local search_fields `"`_fields'"'       
+  }
+  else{
+      return local search_fields `"author title keywords"'  
+  }
+  
+
+`_restore'  //~~~~~~~~~~~~~~~~~~~~~~~~ preserve over ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+end 
+
+
+
+
+
+*===================
+*- Sub-programs     <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+*===================
+
+// cap program drop _error_fail_download
+program define _error_fail_download
+    dis as error `"failed to download data. Check your network or visit {browse "https://www.lianxh.cn":www.lianxh.cn}"'
+    dis ""
+    exit 677
+end  
+
+
+// cap program drop _check_no_obs
+program define _check_no_obs
+    local N = _N
+    if `N'==0{
+        dis as error "Nothing found.  "    // 否则后面的 tag() 命令部分会报错
+        dis as error _c `"You may change keyword(s), e.g. {stata "lianxh PSM "} or visit {browse "https://www.lianxh.cn/blogs/all.html": lianxh.cn  }"' _n
+        exit 2000    // https://www.stata.com/manuals/perror.pdf#perror
+    }
+end 
+
+*-------------------------------------------------------------------------------
+*--------------------------------- lianxh_get_data.ado -------------------------
+
+//*! version 1.4 8nov2023
+
+//*  get JSON data from lianxh.cn's server using API
+//*  Data saved as: <../plus/l/_lianxh_full_data.dta>
+//*  Require: insheetjson.ado, libjson.ado
+
+/* examples  
+   lianxh_get_data
+   lianxh_get_data, here
+   lianxh_get_data, use
+   lianxh_get_data, here use
+   lianxh_get_data DID, here use
+   
+   qui lianxh_get_data
+   des using "`c(sysdir_plus)'l/_lianxh_full_data.dta"
+   use "`c(sysdir_plus)'l/_lianxh_full_data.dta", clear 
+*/
+
+// cap program drop lianxh_get_data  
+program define lianxh_get_data, rclass
+version 14
+
+syntax [anything] [, Here Use Case(string) Path(string)]
+                    * here: save data in working directory
+                    *  use: load data, clear memory
+                    * case: lower, upper, proper, preserve
+                    
+*-check requirement packages, if miss, install them
+  cap which insheetjson
+  if _rc{
+      local PKGs "insheetjson libjson"
+      foreach pkg of local PKGs{
+          noi dis as text ">> installing the required packages: {cmd:`pkg'}"
+          cap noi ssc install `pkg', replace 
+          if _rc == 0{
+              noi dis as text ":: Successed"
+          }
+          else{
+              noi dis as error "Failed. Please check your network or your admin right for installation"
+              noi dis as text  "Note: you can type -findit `pkg'- and install it by hand"
+              exit 677
+          }          
+      }
+  }
+  
+*-check 'use' option   
+  if "`use'" != ""{
+      local _preserve ""
+      local _restore  ""
+  }
+  else{ 
+      local _preserve "preserve"
+      local _restore  "restore"
+  }
+  
+*-filename of .dta according specification of 'anything'
+  if "`anything'" == ""{
+       local FN "full"         // _lianxh_full_data.dta
+  }  
+  else{
+      local FN "temp"          // _lianxh_temp_data.dta
+  }
+  
+*-insheetjson 
+
+`_preserve'  /*--- preserve --- begin ---*/ 
+   
+    clear 
+    
+    local site "https://www.lianxh.cn/web-api/search?s="
+    local key `"`anything'"' 
+    
+    mata: st_local("key", urlencode(`"`key'"')) // decode URL to ASCII
+    
+    local url `"`site'`key'"'
+    // dis "`url'"                  // test 
+    
+    gen str20  catname  = ""
+    gen str50  url_cat  = ""
+    gen str50  url_blog = ""
+    gen str150 title    = ""
+    gen str200 keyword  = ""
+    gen str30  author   = ""
+    gen str10  view     = ""
+    gen str20  pubtime  = "" 
+ // gen str500 description  = ""
+ 
+    local vlist "url_blog catname url_cat title keyword author view pubtime" // description
+    local cols `""url" "type_name" "type_url" "title" "keyword" "author" "pv" "release_time""' // "description"
+    
+    noi dis "updating data: ......  " _c           // ---------- 是否保留 ？？
+    
+    cap insheetjson `vlist' using "`url'", replace table(data) ///
+        columns(`cols') flatten   // savecontents("lxhData")
+        
+  *-中文乱码
+    qui replace catname = "内生性-因果推断"   if strpos(catname, "内生性-因果")
+    qui replace catname = "空间计量-网络分析" if strpos(catname, "空间计量-")
+    qui replace catname = "交乘项-调节-中介"  if strpos(catname, "调节-")
+ 
+    if _rc == 0 {
+        noi dis _c "finished"                  // ---------- 是否保留 ？？
+        if _N == 0 {  如果检索结果为空，需要给出提示，否则 insheetjson 会报错中断
+            noi dis as text "Nothing found. You may change another keyword"
+            exit 198
+        }
+    }
+    else{
+        noi dis as error "Can not insheet JSON data. Report an error to: arlionn@163.com"
+    }
+       
+    gen pubdate = date(pubtime, "YMD")
+    format pubdate %td
+    
+    qui destring view, replace 
+    
+    order cat author title keyword url*  // Desc
+    
+  *-version of Data
+    label data "`c(current_date)'"   // data 的版本号
+    local data_v: data label
+//     dis "`data_v'"                   // 显示 data 版本号
+    
+  *-new variable: the ID of blog (Numb)
+    qui gen ID = ustrregexs(0) if ustrregexm(url_blog, "\d{1,}")
+    
+  *-delete Special Characters in title: ✅ ⏩ ⏫
+    local special_char "✅⏩⏫☝⚡⚽⛄⛳⛵⭐⭕"
+    qui replace title = ustrregexra(title, "[`special_char']", "", 1)
+//     foreach cc of local special_char{
+//         replace title = subinstr(title, "`cc'", "",.) 
+//     }
+    qui replace title =  strtrim(title)  // delete leading and trailing blanks
+    qui replace title = stritrim(title)  // delete internal blanks
+
+    **Using Regular Expressions to Address Mixed Chinese and English titles
+    * by adding blanks
+    **Potential Issue: It may lead to inconsistency between titles 
+    *        on the main page and those presented in related tweets.
+    **Resolution:** No action will be taken at this time.
+    * (?<![\x00-\x7F])([\x00-\x09\x0B-\x1F\x21-\x7F]+)(?![\x00-\x7F])    
+    *-save the data to '../PLUS/l'
+    
+  *-pubtime, Year
+    qui replace pubtime = subinstr(pubtime, "-", "/", .) // 2021-1-1 --> 2021/1/1
+    qui gen Year = string(year(pubdate))
+    qui compress
+    
+  *-Change the case of variable names  
+    
+    if (!mi("`case'")){
+            rename *, `case'
+    }
+    else{
+        rename *, lower
+    }
+   
+   
+  *-variable label
+    label var catname     "推文分类名称"                
+    label var author      "作者姓名"                
+    label var title       "推文标题"                
+    label var keyword     "推文关键词"                
+    label var url_cat     "推文类别链接"                
+    label var url_blog    "推文链接"                
+    label var view        "浏览次数"                
+    label var pubtime     "发布时间(文字)"                
+    label var pubdate     "发布时间(数值)"                
+    label var id          "推文编号"                
+    label var year        "发布年份"
+  
+  *-clone new variable 
+    clonevar click = view   
+    
+  *-------  
+  *-saving 
+  
+    *-save to current working directory
+    if "`here'" != ""{
+        local plus_dir : pwd
+//         dis "`plus_dir'"
+//         save "`plus_dir'/_lianxh_full_data.dta", replace
+    } 
+    else{
+        *-save to "`c(sysdir_plus)'"
+        local plus_dir "`c(sysdir_plus)'l"    
+        local plus_dir = subinstr(`"`plus_dir'"', "\", "/", .)  // For Mac
+        mata: plus_Yes = direxists("`plus_dir'")  // Exist ?
+        mata: st_local("plus_Yes", strofreal(plus_Yes)) 
+        if (`plus_Yes' != 1){
+            dis as error `"can not find dir: `plus_dir', where '_lianxh_full_data.dta' will be saved."'
+            dis "Click {stata "sysdir"} to check. Report bugs to: arlionn@163.com"'
+            return scalar get = 0
+            exit 601
+        }       
+    }
+    qui save "`plus_dir'/_lianxh_`FN'_data.dta", replace
+    return scalar get = 1   
+    
+    if "`use'" != ""{
+        qui use "`plus_dir'/_lianxh_`FN'_data.dta", clear
+    }
+    
+  *-return value   
+    local plus_dir = subinstr(`"`plus_dir'"', "\", "/", .)
+    
+    return local fndir  `"`plus_dir'/_lianxh_`FN'_data.dta"'  // dir/FN
+    return local fn     `"_lianxh_`FN'_data.dta"'            // File name 
+    
+`_restore'  /*--- preserve --- end ---*/ 
+
+end 
+
+
+
+*-------------------------------------------------------------------------
+*----------------------------- check_data_15.ado -------------------------
+// cap program drop check_data_15
+program define check_data_15, rclass
+version 14
+
+    local c_pwd : pwd
+    
+    local plus_dir "`c(sysdir_plus)'l/"  // dir/path of PLUS folder    
+    local plus_dir = subinstr(`"`plus_dir'"', "\", "/", .)  // For Mac 
+    
+    qui cd `"`plus_dir'"'
+    
+	lianxh_dirlist  "_lianxh_full_data.dta"
+	
+    local fdates = date("`r(fdates)'", "YMD")
+    local current_date = date("`c(current_date)'", "DMY")
+    
+    if "`fdates'" == "`current_date'"{
+        local is_new = 1
+    }
+    else{
+        local is_new = 0 
+    }
+    
+    qui cd `"`c_pwd'"'  
+    
+    return scalar is_new = `is_new'
+
+end
+
+//*! version 2.0.1 9nov2023, simplized and modified from 'dirlist.ado'
+//*! version 1.3.1 MA 2005-04-04 12:54:30, original version 
+//*  Morten Andersen, mandersen@health.sdu.dk
+//*  saves directory data in r() macros fnames, fdates, nfiles
+
+// cap program drop lianxh_dirlist
+program define   lianxh_dirlist, rclass
+
+	version 8
+
+	syntax anything
+	
+	tempfile dirlist
+
+	if "`c(os)'" == "Windows" {
+	
+		local shellcmd `"dir `anything' > `dirlist'"'
+
 	}
 	
-	if `"`path_warn'"' == "1" {
-		dis as error `"  存储路径有误，see { stata  " help lianxh" } "'
-	}	
+	if "`c(os)'" == "MacOSX" {
 	
-	qui use "`outcome'", clear
-	local n = _N
+		local anything = subinstr(`"`anything'"', `"""', "", .)
+	
+		local shellcmd `"ls -lT `anything' > `dirlist'"'
 
-	*------------------------------------------------------------------------*
-	***options识别***
+	}
 		
-		if `n' > 0{
-		    dis _n
-			if "`mlink'" != ""{
-				use "`outcome'", clear
-				sort CatIDnew id
-				local n = _N
-				if "`catfirst'" != "" {
-					dis _n
-					dis "-" " 专题：" CatNameURL_md[1]
-					forvalues j = 1/`n' {
-						if (`j'>1) & (Cat_br[`j'] != Cat_br[`j'-1]) {
-						dis "-" " 专题：" CatNameURL_md[`j'] 	
-						}		
-					}
-					dis _n		
-					forvalues j = 1/`n'{
-						dis blog_Mlink[`j']
-					}
-				}
-				if "`nocat'" != "" {    //nocat选项 
-					dis _n 
-					forvalues j = 1/`n'{
-						dis blog_Mlink[`j']
-					}
-				}
-				if "`catfirst'" == "" & "`nocat'" == "" {
-					dis _n
-					dis "-" " 专题：" CatNameURL_md[1]
-					forvalues j = 1/`n' {
-						if (`j'>1) & (Cat_br[`j'] != Cat_br[`j'-1]) {
-						dis "-" " 专题：" CatNameURL_md[`j'] 	
-						}		
-						dis  "  " blog_Mlink[`j'] //前面空两格
-					}
-					dis _n
-				}
+	if "`c(os)'" == "Unix" {
+	
+		local anything = subinstr(`"`anything'"', `"""', "", .)
+	
+		local shellcmd `"ls -l --time-style='+%Y-%m-%d %H:%M:%S'"'
+		local shellcmd `"`shellcmd' `anything' > `dirlist'"'
+		
+	}
+
+	quietly shell `shellcmd'
+
+	* read directory data from temporary file
+	
+	tempname fh
+	
+	file open `fh' using "`dirlist'", text read
+	file read `fh' line
+	
+	local nfiles = 0
+	local curdate = date("`c(current_date)'","dmy")
+	local curyear = substr("`c(current_date)'",-4,4)
+	
+	while r(eof)==0  {
+	
+		if `"`line'"' ~= "" & substr(`"`line'"',1,1) ~= " " {
+
+			* read name and data for each file
+
+			if "`c(os)'" == "MacOSX" {
+				
+				local fda   : word 6 of `line'
+				local fmo   : word 7 of `line'
+				local fyr   : word 9 of `line'
+				local fname : word 10 of `line'
+				local fdate =  ///
+					string(date("`fmo' `fda' `fyr'","mdy"),"%dCY-N-D")
+								
 			}
-		
-			if "`mtext'" != ""{
-				use "`outcome'", clear
-				sort CatIDnew id
-				local n = _N
-				dis _n
-				if "`nocat'" == "" {
-					dis " 专题：" CatNameURL_md[1]
-					forvalues j = 1/`n' {
-						if (`j'>1) & (Cat_br[`j'] != Cat_br[`j'-1]) {
-							dis " 专题：" CatNameURL_md[`j'] 	
-						}			
-						dis blog_Mtext[`j']
-					}
+
+			if "`c(os)'" == "Unix" {
+				
+				local fdate : word 6 of `line'
+				local fname : word 8 of `line'
+							
+			}
+
+			if "`c(os)'" == "Windows" {
+			
+				local fdate : word 1 of `line'
+				local word3 : word 3 of `line'
+				
+				if upper("`word3'")=="AM" | upper("`word3'")=="PM" {
+					local fname : word 5 of `line'
 				}
 				else {
-					forvalues j = 1/`n'{
-						dis blog_Mlink[`j']
-					}
-				}
-				dis _n
-			}
-			
-			if "`weixin'" != ""{  
-				use "`outcome'", clear
-				sort CatIDnew id
-				local n = _N
-				*dis "  "
-				local Ng = 8               // 每组 8 条记录
-				forvalues j = 1/`n' {
-				    if `j'>=8&mod(`j',8)==0{
-					    local newline "_n"
-					}	
-					else{
-					    local newline ""
-					}		
-					dis blog_Weixin[`j'] `newline'
-				}
-				if `n'>=10{
-				    dis in red _n "Note: 建议分多次复制到微信对话框，每次 8 行，否则超链接无法生效"
-				}
-			}
-						
-			if "`saving'" ~= ""{
-			    dis _n _c
-				export delimited blog_Mlink using "`path'/`saving'" , ///
-					   novar nolabel delimiter(tab) replace
-				local save "`saving'"   
-					   
-				noi dis _n ///
-				        _col(5)  `"{stata `" view  "`path'/`save'" "': View}"' ///
-				        _col(15) `"{stata `" !open "`path'/`save'" "' : open_Mac}"' ///
-						_col(30) `"{stata `" winexec cmd /c start "" "`path'/`save'" "' : open_Win}"'
-				
-				noi dis _col(10) `"{browse `"`path'"': dir}"'
-			}			
-			
-		}
-		
-		else{
-			dis as error `"  一无所获? 试试 {stata "   lianxh all  "} 或 {browse "https://www.lianxh.cn/blogs.html":  [推文列表]        }"' 
-			dis as text  `"  烦请您花一分钟反馈您刚才未检索到的关键词，以便我们优化程序："'
-			dis _col(20) `"  {browse "https://www.wjx.cn/jq/98072236.aspx":点击填写 (有惊喜!)      }"'
-		}    
+					local fname : word 4 of `line'
+				}							
 	
-restore	
+			}
+
+			local fnames "`fnames' `fname'"
+			local fdates "`fdates' `fdate'"
+			local nfiles = `nfiles' + 1
+
+		}
+
+		file read `fh' line
+	
+	}
+	
+	file close `fh'
+	
+	return local fnames `fnames'
+	return local fdates `fdates'
+	return local nfiles `nfiles'
+	
 end
 
 
 
 
+*-------------------------------------------------------------------------------
+*----------------------------- lianxh_check_update.ado -------------------------
+//*! version 1.1  8nov2023
+
+/*
+~~~ basic idea
+1. get newest version number (NVN) from <lianxh.cn>. NVN is save in blog with keyword="lianxh-update-v#.#"
+2. if failed, check NVN from <lianxh.oss-cn.aliyuncs.com>. NVN is saved in 'lianxh-version.txt'
+3. compare NVN with local version number (LVN) and update 
+Note: every day, 'lianxh_check_update.ado' only works one time when lianxh.ado is first loaded
+*/
+
+/*
+~~~~~~~test
+cls
+cap profiler clear 
+profiler on
+// set trace on
+lianxh_check_update
+ret list 
+// set trace off 
+profiler off
+profiler report
+*/
+
+// cap program drop lianxh_check_update
+program define lianxh_check_update, rclass
+version 14
+
+* require: which_version.ado
+     cap which which_version 
+     if _rc{
+         cap ssc install which_version, replace 
+     }
+   
+   *----
+   * M1: get newest version of 'lianxh.ado' - from <lianxh.cn>
+   capture ds title author catname
+   if _rc==0{
+     cap drop with_update
+     qui gen with_update = 1 if strpos(title, "lianxh-update-v")
+     qui sort with_update
+     if ustrregexm(title, "lianxh-update-v(\d\.\d)"){
+         local version_new = ustrregexs(1)
+         if "`version_new'" != ""   local Got_hp_version = 1
+         else                       local Got_hp_version = 0
+         local IsUpdate = 0
+         dis "hp: `version_new'"                  // test 
+     }
+     else{
+         local Got_hp_version = 0
+     }       
+   }
+   else{
+       local Got_hp_version = 0
+   }
+   
+   *----
+   * M2: get newest version of 'lianxh.ado' - from <aliyuncs.com>
+   *     file-lianxh / lianxh-ado / lianxh-version.txt 
+     if "`Got_hp_version'" == "0"{
+         local lxh_v "https://file-lianxh.oss-cn-shenzhen.aliyuncs.com/lianxh-ado/lianxh-version.txt"
+         mata: a = cat("`lxh_v'")
+         mata: v_new = ustrword(a[1,1], 1)
+         mata: st_local("version_new", v_new)   
+         if "`version_new'" != ""   local Got_hp_version = 1
+         if "`version_new'" != ""   local Got_hp_version = 1
+         else                       local Got_hp_version = 0
+         local IsUpdate = 0     
+     }
+
+   * campare and update 
+     if "`Got_hp_version'" == "1"{
+         
+         qui which_version lianxh 
+         local version_local = s(version)
+         
+         if "`version_new'" != "`version_local'"{
+             cap ssc install lianxh, replace 
+             if _rc==0{
+                 dis "lianxh.ado is updated: from 'v `version_local'' to 'v `version_new''"
+                 local IsUpdate = 1 
+                 local IsNew = 1
+             }
+             else{
+                 local IsUpdate = 0
+             }
+         }
+         else{
+             local IsUpdate = 0
+             local IsNew = 1
+         }
+     }
+     
+   * return value
+     return scalar IsUpdate = `IsUpdate'
+     return scalar IsNew    = `IsNew'
+     return local  version_new   = "`version_new'"
+     return local  version_local = "`version_local'"
+     
+end     
+
+
+
+*-------------------------------------------------------------------------------
+*--------------------------------- lianxh_br.ado -------------------------------
+
+//*! version 1.2 6nov2023
+/*
+Examples
+
+lianxh_br DID 
+lianxh_br DID table
+lianxh_br DID table RDD      // do not open in browser
+lianxh_br DID table RDD, br  // open three new window in brower 
+lianxh_br xxxyyzz            // found nothing, but do not report any error.
+*/
+
+// cap program drop lianxh_br   // delete later
+program define   lianxh_br
+
+syntax anything [, BRowse Maxkeyword(integer 2)]
+    
+    local key `"`anything'"'
+    
+    if "`maxkeywords'" == ""{
+        local maxkeywords = 2
+    }
+    
+  *-计算每个关键词的长度，将最大值记入暂元  maxlen 
+    local maxlen = 0
+    
+    tokenize `key'
+    
+    local j = 1
+    local       nof_words = wordcount(`"`key'"')
+    while `j'<=`nof_words'{
+        if ustrlen("``j''") > `maxlen'{
+            local maxlen = ustrlen("``j''")
+        }
+        local j = `j' + 1
+    }   
+
+    local maxlen = `maxlen' + 8  // the length of Chinese Word is too short
+
+    
+  *-列示检索结果及链接     
+    local hp_site "https://www.lianxh.cn/search.html?s="   
+    local j = 1
+    while `j'<=`nof_words'{
+        local key "``j''"
+        local url_key `"`hp_site'`key'"'
+        
+        mata: st_local("key_ascii", urlencode(`"`key'"'))  // URL --> percent-encoded ASCII format
+        
+        local url_key_ascii `"`hp_site'`key_ascii'"'
+        * Format:    dis `"{browse "URL": Text}"'
+        local key_dis: dis %`maxlen's "`key'"
+        dis _col(1) "`key_dis': "`"{browse "`url_key_ascii'":`url_key'}"'
+        if "`browse'" != "" | `nof_words' <= `maxkeywords'{
+            view browse "`url_key_ascii'"   // view in default browser
+        }
+        local j = `j' + 1
+    }
+
+end 
+
+
+
+*-------------------------------------------------------------------------------
+*--------------------------------- lianxh_select.ado ---------------------------
+// cap program drop lianxh_select  
+program define   lianxh_select, rclass
+version 14
+
+syntax varname [, Select(string)]
+
+//     cap qui ds `select'   //   
+//     if _rc{
+//         noi ds `select'
+//     }
+    
+    if `"`select'"' == ""{
+        exit 198
+    }
+    
+    local sellist `"`select'"'
+    local svar   "`varlist'"     // variable name to be searched
+    
+    local N0 = _N
+    
+    local Is_AND = (strpos(`"`sellist'"', "+")==0)
+    
+
+    tempvar Yes_select
+    gen `Yes_select' = 0
+ 
+ // select(A B):   keep if A | B 
+    if strpos(`"`sellist'"', "+")==0{   
+        foreach sword of local sellist{
+           replace `Yes_select' = 1 if ustrregexm(`svar', "`sword'", 1) 
+        }
+        keep if `Yes_select' == 1
+    }
+    
+ // select(A B +): keep if A & B  
+    else{   
+        local sellist = subinstr(`"`sellist'"', "+", " ", .)
+        local nof_sellist = wordcount(`"`sellist'"')
+        local sel_vlist ""
+        local j = 1
+        foreach sword of local sellist{
+            tempvar sel_v
+            gen `sel_v'`j' = ustrregexm(`svar', "`sword'", 1)
+            local sel_vlist "`sel_vlist' `sel_v'`j'"
+            local j = `j' + 1
+        }       
+        tempvar sel_v_sum
+        egen `sel_v_sum' = rowtotal(`sel_vlist')
+        keep if `sel_v_sum' == `nof_sellist'   
+    }   
+    
+    local N1 = _N
+    
+  *-return values    
+    return scalar nof_sel  = `N1'
+    return scalar nof_drop = `=`N0' - `N1''
+    
+
+end   
+
+
+
+
+*-------------------------------------------------------------------------------
+*--------------------------------- lianxh_exclude.ado --------------------------
+
+//*! version 1.0 26oct2023
+//*  drop observations according keywords, with ' ' (blanks) means "OR", and '+' means "AND" 
+//*  Usage: https://gitee.com/arlionn/stata/wikis/adofile/lianxh_exclude
+
+// cap program drop lianxh_exclude  
+program define lianxh_exclude, rclass
+version 14
+
+syntax varname, Exclude(string)
+
+    local exlist `"`exclude'"'
+    local svar   "`varlist'"     // variable name to be searched
+    
+    local N0 = _N
+    
+ // exclude(A B):   drop if A | B
+    if strpos(`"`exlist'"', "+")==0{   
+        foreach sword of local exlist{
+           qui drop if ustrregexm(`svar', "`sword'", 1) 
+        }
+    }
+ // exclude(A B +): drop if A & B  
+    else{   
+        local exlist = subinstr(`"`exlist'"', "+", " ", .)
+        local nof_exlist = wordcount(`"`exlist'"')
+        local ex_vlist ""
+        local j = 1
+        foreach sword of local exlist{
+            tempvar ex_v
+            gen `ex_v'`j' = ustrregexm(`svar', "`sword'", 1)
+            local ex_vlist "`ex_vlist' `ex_v'`j'"
+            local j = `j' + 1
+        }       
+        tempvar ex_v_sum
+        egen `ex_v_sum' = rowtotal(`ex_vlist')
+        qui drop if `ex_v_sum' == `nof_exlist'   
+    }   
+    
+    local N1 = _N
+    
+    return scalar nof_drop = `=`N0' - `N1''
+
+end   
+
+
+
+*-------------------------------------------------------------------------------
+*--------------------------------- lianxh_fields.ado ---------------------------
+/* Examples
+
+lianxh_fields a 
+lianxh_fields a t k
+lianxh_fields a t k, report
+
+lianxh_fields a b           // error
+lianxh_fields a t k url_ca  // error
+lianxh_fields a t k id year // error
+*/
+
+// cap program drop lianxh_fields
+program define lianxh_fields, rclass
+version 14
+
+syntax [anything] [, Gen(string) Report] 
+
+if `"`anything'"' == ""{  // default: search within all 4 fields
+    local fields "title author keyword"  // catname
+    local user_list "`fields'"
+    
+    if "`gen'" == ""{
+        cap drop svar
+        egen svar = concat(`fields')  //  concatenates varlist  
+    }
+    else{
+        cap drop `gen'
+        noi egen `gen' = concat(`fields')
+    }
+    local nof_fields = 0
+}
+
+else{   // user specify
+
+    local fields `"`anything'"'
+
+    local nof_fields = wordcount(`"`fields'"')
+  
+  *-check nof_fields
+    if `nof_fields'>5{
+        dis as error "invalid -fields(keys)-. The max number of keys is 5."
+        exit 198
+    }
+    
+  *-check valist exit
+    qui cap ds `fields'
+    if _rc{
+        cap noi ds `fields'  // display error message 'var not found'
+        exit 111
+    }
+    
+  *-limited within {t a k d c}  
+    local accept_list "title author keyword catname description"
+    unab  user_list: `fields'  // unabbreviate variable lists
+
+    local invalid_list ""
+    foreach v of local user_list{
+        if strpos("`accept_list'", "`v'") == 0{
+            local invalid_list "`invalid_list' `v'"
+        }
+    }
+    local invalid_list = strltrim("`invalid_list'")
+    if "`invalid_list'" != ""{
+        dis as error `"'`invalid_list'' no allowed in option -fields()-."' 
+        dis as error `"Valid variable should be selected among "' as text "{`accept_list'}" as error ", allowing abbreviations, i.e, " in text `"{t a k c d}."'
+        exit 198
+    }
+}
+    
+
+*-generate combined variables to support 'Cross field query'
+    if "`gen'" == ""{
+        cap drop svar
+        egen svar = concat(`fields')  //  concatenates varlist   
+        label var svar `"concat(`fields')"'
+    }
+    else{
+        cap drop `gen'
+        noi egen `gen' = concat(`fields')
+        label var `gen' `"concat(`fields')"'
+    }
+    
+*-report 
+    if "`report'" == "report"{
+        dis as smcl `"'`user_list'' are combined into new variable {it:svar}"'
+    }
+    
+*-return values
+    unab _fields : `fields'
+    return local fields "`_fields'"
+    
+    if "`gen'" == ""{
+        return local svar "svar"
+    }
+    else{
+        return local svar "`gen'"
+    }
+
+
+end 
+
+
+
+*-------------------------------------------------------------------------------
+*--------------------------------- lianxh_fromto.ado ---------------------------
+
+// cap program drop lianxh_fromto             // delete later >>>>>>>
+program define   lianxh_fromto, rclass
+
+syntax anything [, Format(string) Myset(string) Display]
+
+// Checking and setting options
+ 
+    if "`format'" != "" & "`myset'" != ""{
+        dis as error "Options conflict: either -format()- or -myset()-, not both."
+        exit 198
+    }
+
+    if "`format'" == ""{
+        local fdate "CCYY-NN-DD"                    // 2023-12-31, default
+    }
+    else{
+        if `format' == 1  local fdate ""            // 31dec2023
+        if `format' == 2  local fdate "CCYYNNDD"    // 20231231
+        if `format' == 3  local fdate "CCYY.NN.DD"  // 2023.12.31
+        if `format'<=0 | `format'>3{
+            dis as error "Invalid format(#). # should be: 1 or 2 or 3"
+            exit 198
+        }
+    }
+    
+    if "`myset'" != ""{
+        local fdate "`myset'"
+    }
+    
+//  regularize dates using regular expression   
+    local fromto `anything'
+    
+    local fromto = subinstr("`fromto'", "," , " ", .)  // robust to "2022/01/1，2023-1-01"
+    local fromto = subinstr("`fromto'", "，", " ", .)
+
+    local nof_T = wordcount("`fromto'") // number of arguments  
+    
+    if `nof_T'>2{
+        dis as error "invalid -fromto(time0 time1)-, only two arguments allowed"
+    }
+    else{
+        tokenize "`fromto'"
+        local j=1
+        while "``j''" != ""{        
+          //dis "`j'th: ``j''"                       // test
+            local expYMD `"^(\d{4})([-\\/\.]?)(0?[1-9]|1[012])([-\\/\.]?)(0?[1-9]|[12][0-9]|3[01])$"'
+            local expYM  `"^(\d{4})([-\\/\.]?)(0?[1-9]|1[012])$"'
+            local expY   `"^((?:19|20)\d\d)$"'
+          
+          *-invalid time format   
+            if !ustrregexm("``j''", `"`expYMD'"') & !ustrregexm("``j''", `"`expYM'"') & !ustrregexm("``j''", `"`expY'"'){           
+                dis as error "invalid date format."
+                dis as error "You should specify fromto(t0 t1), where -t0/t1- can be <2023-1-1>, <2023/1/1>, <2023-1> or <2022>"
+                local valid = 0
+                exit 198
+            }
+            
+            
+         // 2023-1 --> 2023-1-1 
+         
+            if ustrregexm("``j''", `"`expYM'"'){  
+                local s1 = ustrregexs(1)
+                local s2 = ustrregexs(2)
+                local s3 = ustrregexs(3)
+                if `j' == 1{      // 2022-1 --> 2022-1-01
+                    local `j' = "`s1'" + "`s2'" + "`s3'" + "`s2'" + "01" 
+                }
+                if `j' == 2{      // 2023-1 --> 2023-2-01 
+                    local `j' = "`s1'" + "`s2'" + "`=`s3'+1'" + "`s2'" + "01" 
+                    local adjust2 = 1  // 2023-12-1 --> 2023-11-30
+                }
+                //--> ideas:
+                //
+                //  (\d{4})([-/]?)(\d{1,2})    |    2023-1
+                //     $1     $2      $3
+                //  $1$2$3$201                 |    2023-1-01     
+            }
+            
+            
+         // (2021 2022) --> (2022-1-1 2022-12-31)
+         
+            if ustrregexm("``j''", `"`expY'"'){
+                local s1 = ustrregexs(1)
+                if `j' == 1{      // 2022-1 --> 2022-1-01
+                    local `j' = "`s1'" + "-01-01" 
+                }
+                if `j' == 2{      // 2023-1 --> 2023-2-01 
+                    local `j' = "`s1'" + "-12-31" 
+                } 
+            }  
+            
+            local j = `j'+1
+            
+        }
+    }
+    
+ // fromto(2023-1-1) ==> fromto(2023-1-1 curret_date)
+    if `nof_T' == 1{   
+        local time0 = date("`1'", "YMD")
+        local time1 = date("`c(current_date)'", "DMY")
+                                                 
+    } 
+    
+    if `nof_T' == 2{   
+        *tokenize "`fromto'"
+        local t1 = date("`1'", "YMD") 
+        if "`t1'" == "."{
+            dis as error "Invalid time specification. Possible invalid example may be <2022-2-31>"
+            local valid = 0
+            exit 198
+        }
+
+        local t2 = date("`2'", "YMD")
+        if "`t2'" == "."{
+            dis as error "Invalid time specification. Possible invalid example may be <2022-2-31>"
+            local valid = 0
+            exit 198
+        }        
+
+        if "`adjust2'"=="1"{
+            local t2 = `t2'-1    // backward one day
+                                 // 2023-2-01 --> 2023-1-31 or 2023-3-01 --> 2023-2-28 
+        }
+        
+      * resort the timeline 
+      * e.g. 
+      *      fromto(2023-10-20 2022-1-1) ==> fromto(2022-1-1 2023-10-20)
+        local time0 = min(`t1', `t2')  
+        local time1 = max(`t1', `t2')
+    }
+
+
+ // setting display format
+ 
+    local date0 : dis %td`fdate' `time0'     // set display format `fdate'
+    local date1 : dis %td`fdate' `time1'     // 
+    
+    local range1 "[`date0', `date1']"
+    local range2 "(`date0', `date1')"
+    
+    
+ // display option   
+    if "`display'" != ""{
+        dis "Range: `range1'"  
+    }   
+    
+    
+ // return values  
+ 
+    return local  range2 = "`range2'"
+    return local  range1 = "`range1'"    
+
+    return scalar t1 = `time1'
+    return scalar t0 = `time0'    
+    return local  date1 = "`date1'"
+    return local  date0 = "`date0'"
+ 
+end 
+
+
 
 *==============================================================================*	
 ****Sub programs****
-cap program drop lianxh_links
+// cap program drop lianxh_links
 program define lianxh_links
 version 8
 
@@ -546,7 +1596,7 @@ version 8
 		 _col(`c3') `"{browse "https://blog.stata.com/":`Lbb'Blogs`Rbb'}"' 
       dis in w  _col(11)  ///			 
 		 _col(`c1') `"{browse "https://www.stata.com/links/resources-for-learning-stata/":`Lbb'Resources`Rbb'}"' ///
-		 _col(`c2') `"{browse "https://www.stata.com/bookstore/stata-cheat-sheets/":`Lbb'Stata小抄`Rbb'}"' ///		 
+		 _col(`c2') `"{browse "https://www.lianxh.cn/details/310.html":`Lbb'Stata小抄`Rbb'}"' ///		 
 		 _col(`c3') `"{browse "https://www.stata.com/links/examples-and-datasets/":`Lbb'Textbook Example`Rbb'}"' ///
 		 _n
 
@@ -568,12 +1618,12 @@ version 8
 		 _n
 	  
 	  dis in w " 推文视频: "  /// 
-	     _col(`c1') `"{browse "https://www.lianxh.cn/news/d4d5cd7220bc7.html":`Lbb'连享会推文`Rbb'}"' ///
+	     _col(`c1') `"{browse "https://www.lianxh.cn/blogs/all.html":`Lbb'连享会推文`Rbb'}"' ///
 		 _col(`c2') `"{browse "https://www.zhihu.com/people/arlionn/":`Lbb'知乎`Rbb'}"'  ///
-		 _col(`c3') `"{browse "https://gitee.com/arlionn/Course":`Lbb'码云仓库`Rbb'}"' 
+		 _col(`c3') `"{browse "https://gitee.com/arlionn":`Lbb'码云仓库`Rbb'}"' 
 	  dis in w  _col(11)  ///		 
 		 _col(`c1') `"{browse "https://www.lianxh.cn/news/46917f1076104.html":`Lbb'计量专题`Rbb'}"' ///
-		 _col(`c2') `"{browse "http://lianxh.duanshu.com":`Lbb'视频直播`Rbb'}"'  ///
+		 _col(`c2') `"{browse "https://lianxh-class.cn/":`Lbb'视频直播`Rbb'}"'  ///
 		 _col(`c3') `"{browse "https://www.techtips.surveydesign.com.au/blog/categories/stata":`Lbb'Tech-Tips`Rbb'}"'  ///
 		 _n
 
@@ -582,7 +1632,7 @@ version 8
 		 _col(`c2') `"{browse "http://www.princeton.edu/~otorres/Stata/":`Lbb'Princeton`Rbb'}"' ///
 		 _col(`c3') `"{browse "http://wlm.userweb.mwn.de/Stata/":`Lbb'Online Stata`Rbb'}"'
 	  dis in w  _col(11)  ///	
-		 _col(`c1') `"{browse "https://gitee.com/arlionn/stata101":`Lbb'Stata 33 讲`Rbb'}"' ///	  
+		 _col(`c1') `"{browse "https://www.lianxh.cn/details/1095.html":`Lbb'Stata 33 讲`Rbb'}"' ///	  
 		 _col(`c3') `"{browse "https://gitee.com/arlionn/PanelData":`Lbb'面板数据模型`Rbb'}"' ///
 		 _n
 		 
@@ -603,23 +1653,17 @@ version 8
 	  dis in w  _col(11)  ///
 	     _col(`c1') `"{browse "https://www.icpsr.umich.edu/icpsrweb/":`Lbb'ICPSR`Rbb'}"' ///
 		 _col(`c2') `"{browse "https://data.mendeley.com/":`Lbb'Mendeley`Rbb'}"' ///
-		 _col(`c3') `"{browse "https://github.com/search?utf8=%E2%9C%93&q=stata&type=":`Lbb'Github`Rbb'}"' ///
-		 _n
+		 _col(`c3') `"{browse "https://github.com/search?utf8=%E2%9C%93&q=stata&type=":`Lbb'Github`Rbb'}"' 
 	  dis in w  _col(11)  ///
 	     _col(`c1') `"{browse "https://www.aeaweb.org/journals":`Lbb'AEA`Rbb'}"' ///
-		 _col(`c2') `"{browse "https://data.mendeley.com/":`Lbb'JFE`Rbb'}"' ///
-		 _col(`c3') `"{browse "https://github.com/search?utf8=%E2%9C%93&q=stata&type=":`Lbb'Github`Rbb'}"' ///
+		 _col(`c2') `"{browse "http://jfe.rochester.edu/data.htm":`Lbb'JFE`Rbb'}"' ///
+		 _col(`c3') `"{browse "http://economics.mit.edu/faculty/acemoglu/data":`Lbb'Acemoglu`Rbb'}"' ///
 		 _n		 
 		  
 	  dis in w _col(15) ///
-		  as smcl `"{stata "net install lianxh.pkg, from(https://arlionn.gitee.io/lianxh) replace": -更新lianxh-}"' ///
-		  _skip(8)     ///
-		  as smcl `"{stata "lianxh all": -查看分类推文-}"' 
+		  as smcl `"{stata "ssc install lianxh, replace": ~~更新~~}"' ///
+		  _skip(15)     ///
+		  as smcl `"{browse "https://www.lianxh.cn/blogs/all.html":-查看分类推文-}"'
 		  
 end
    	
-
-
-
-
-	

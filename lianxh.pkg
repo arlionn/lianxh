@@ -1,10 +1,32 @@
-v 2.17
-d 'LIANXH': [连享会](https://www.lianxh.cn)资源汇总
-d 
-d `lianxh` 可以让你在 Stata 命令窗口中快速查询连享会发布的推文，获取 Stata 资源。
-d 
-d Distribution-Date:   20201122
-d License: MIT
-d 
+d 'LIANXH': module to Search and share Stata resources and blogs within Stata Command Window
+d
+d lianxh make it easy for users to search blog posts and useful
+d links from within Stata command window. You can also list
+d common Stata resource links, including Stata official website,
+d Stata FAQs, Statalist, Stata Journal, Stata online tutorial,
+d replication data & programs etc. 
+d
+d KW: search
+d KW: resources
+d KW: blogs
+d KW: lianxh.cn
+d
+d Requires: Stata version 14, insheetjson
+d
+d Distribution-Date: 20231116
+d version: 1.2
+d
+d Author: Lian Yu-jun, Lingnan College, Sun Yat-Sen University, China
+d Support: email arlionn@@163.com
+d
+d Author:  Junjie Kang , Lingnan College, Sun Yat-Sen University, China
+d Support: email 642070192@@qq.com
+d
+d Author: Qingqing Liu , Lingnan College, Sun Yat-Sen University, China
+d Support: email 2428172451@@qq.com.
+d
+d Github: https://github.com/arlionn/lianxh
+d
 f lianxh.ado
 f lianxh.sthlp
+f lianxh_cn.sthlp

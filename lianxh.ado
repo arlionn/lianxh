@@ -1,4 +1,5 @@
-*! version 1.2  16nov2023
+*! version 1.2  16nov2023  
+// mirror update 2023/11/17 2:32
 *! version 1.1  11apr2021
 *! Yujun Lian  arlionn@163.com
 
@@ -6,7 +7,6 @@
 //  Ruihan Liu  2428172451@qq.com
 //  https://www.lianxh.cn
 
-// cap program drop lianxh
 program define lianxh, rclass
 
 version 14
@@ -27,6 +27,7 @@ syntax [anything] [,      ///
         md0               ///   // - [Author](url), Year, [title](URL), jname No.#.         
         md1               ///   // - [title](URL)
         md2               ///   // - Author, Year, [title](URL)
+        md3               ///   // ## catname + md0, do not document in help
         mdc               ///   // Author([Year](url_blog))
         mdca              ///   // [Author](author_link)([Year](url_blog))  
         mdnum             ///   // "1. xxx". instead of default: '- xxxx'. 设定此选项时自动加载 nocat 选项
@@ -76,7 +77,7 @@ clear
 *-option conflicts and validity  
   
   *-md/latex/weixin/text 只能填一个
-    local formatoptions "`md' `mdc' `mdca' `md0' `md1' `md2' `latex' `lac' `weixin' `text'"
+    local formatoptions "`md' `mdc' `mdca' `md0' `md1' `md2' `md3' `latex' `lac' `weixin' `text'"
     if wordcount("`formatoptions'")>1{
         dis as error "Options conflict: only one of {cmd:md*} / {cmd:latex} / {cmd:lac} / {cmd:weixin} / {cmd:text} options is allowed"
         exit
@@ -333,7 +334,7 @@ qui{  //----------------------------------qui ----------01------
     gen Is_author_valid = (!ustrregexm(author,"[，、!\(\)（）\|]+"))
     
     *-Author link
-    if "`md0'`mdca'" != ""{
+    if "`md0'`md3'`mdca'" != ""{
         split author if Is_author_valid==1, parse(`", "') gen(_author)
         local k_new = r(nvars)   // stata 17: local k_new = r(k_new)
         local site "https://www.lianxh.cn/search.html?s="
@@ -413,6 +414,7 @@ qui{  //----------------------------------qui ----------01------
 //    md0               ///   // - [Author](au_url), Year, [title](URL), jname No.#.         
 //    md1               ///   // - [title](URL)
 //    md2               ///   // - Author, Year, [title](URL).
+//    md3               ///   // ## catname + md0, do not document in help
 //    Latex             ///   // Author, Year, \href{URL}{title}, jname No.#.
 //    lac               ///   // Author (\href{url_blog}{Year})
 //    Weixin            ///   // Author, Year, title, URL, 每隔 8 行空一行
@@ -421,7 +423,7 @@ qui{  //----------------------------------qui ----------01------
 
 *-Default format: show results in Results Window
   
-  local dis_opt "`md'`mdc'`mdca'`md0'`md1'`md2'`latex'`lac'`weixin'`text'"
+  local dis_opt "`md'`mdc'`mdca'`md0'`md1'`md2'`md3'`latex'`lac'`weixin'`text'"
   
   if ("`dis_opt'" ==""){  
       gen _Cat_br = `">>专题：{browse ""' + url_cat +`"": "' + catname +`"}"'
@@ -463,10 +465,15 @@ qui{  //----------------------------------qui ----------01------
       gen _Cat_br   = `cat_br_md'  
       gen _title_link  = "[" + title   + "](" + url_blog + ")"
   }
+  if "`md3'" != ""{
+      local cat_br_md `""## " + catname"'
+      gen _Cat_br   = `cat_br_md'  
+      gen _title_link  = "[" + title   + "](" + url_blog + ")"
+  }  
   if "`md'" !=""{
       gen _BlogDis = "`item'" + author      + ", " + year + ", " + _title_link  + `"`jname_No'"' + id + "." `hot_new'
   }
-  if "`md0'" !=""{
+  if "`md0'`md3'" !=""{
       gen _BlogDis = "`item'" + author_link + ", " + year + ", " + _title_link  + `"`jname_No'"' + id + "." `hot_new'
   }
   if "`md1'" !=""{
@@ -514,12 +521,16 @@ qui{  //----------------------------------qui ----------01------
   else if "`new'" != ""{
       gsort -pubdate
   }
+  else if "`mdc'`mdca" != ""{  // new 2023/11/17 1:03
+      sort author -pubdate
+  }
   else if "`gsortby'" != ""{
       gsort `gsortby'
-      local nocat "nocat"    // 设定 gsortby 选项后，不再呈现分类列表
+      //local nocat "nocat"    // 设定 gsortby 选项后，不再呈现分类列表
   }
   else{
-      gsort catname author title -pubdate    
+    //gsort catname author title -pubdate
+      gsort url_cat author title -pubdate    // new 2023/11/17 0:56
   }
 
       
@@ -549,7 +560,7 @@ forvalues i = 1/`N'{
 
 *---- Export 
 
-if "`dis_opt'" != ""{
+if ("`dis_opt'" != ""){
     qui{             //----------------------------------qui --------02------
         if ("`mdc'`mdca'" == "") & ("`nocat'" == "") {  
             gen _tag2 = _tag + 1 if _tag==1
@@ -557,7 +568,8 @@ if "`dis_opt'" != ""{
             replace _BlogDis = "" if orig==1
             replace _BlogDis = "  " + _BlogDis if _BlogDis != "" 
             replace _BlogDis = _Cat_br if _BlogDis == "" 
-            gsort _Cat_br -orig  author title          // gsort  
+         // gsort _Cat_br -orig  author title          // gsort 
+            gsort url_cat -orig  author title          // new 2023/11/17 0:58
         }
     }                //----------------------------------qui --------02--over--
     
@@ -570,7 +582,7 @@ if "`dis_opt'" != ""{
 		local path = subinstr(`"`path'"', "\", "/", .)
     }
         
-    local dis_opt_md  "`md'`mdc'`mdca'`md0'`md1'`md2'"
+    local dis_opt_md  "`md'`mdc'`mdca'`md0'`md1'`md2'`md3'"
     local dis_opt_txt "`latex'`lac'`weixin'`text'"
     
     if "`dis_opt_md'" != ""{
@@ -695,20 +707,14 @@ syntax [anything] [, Here Use Case(string) Path(string)]
 *-check requirement packages, if miss, install them
   cap which insheetjson
   if _rc{
-      local PKGs "insheetjson libjson"
-      foreach pkg of local PKGs{
-          noi dis as text ">> installing the required packages: {cmd:`pkg'}"
-          cap noi ssc install `pkg', replace 
-          if _rc == 0{
-              noi dis as text ":: Successed"
-          }
-          else{
-              noi dis as error "Failed. Please check your network or your admin right for installation"
-              noi dis as text  "Note: you can type -findit `pkg'- and install it by hand"
-              exit 677
-          }          
-      }
+      _install_pkg insheetjson
   }
+  
+  cap findfile libjson.mlib
+  if _rc{
+      _install_pkg libjson
+  }
+  
   
 *-check 'use' option   
   if "`use'" != ""{
@@ -877,6 +883,24 @@ syntax [anything] [, Here Use Case(string) Path(string)]
 `_restore'  /*--- preserve --- end ---*/ 
 
 end 
+
+// cap program drop _install_pkg
+program define _install_pkg
+syntax anything 
+local pkg "`anything'"
+
+          noi dis as text `">> installing the required packages: {cmd:`pkg'}"'
+          cap noi ssc install `pkg', replace 
+          if _rc == 0{
+              noi dis as text ":: Successed"
+          }
+          else{
+              noi dis as error "Failed. Please check your network or your admin right for installation"
+              noi dis as text  "Note: you can type -findit `pkg'- and install it by hand"
+              exit 677
+          }
+          
+end   
 
 
 

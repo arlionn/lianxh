@@ -6,4 +6,4 @@ d Github: https://github.com/arlionn/lianxh
 
 d 'lianxh': search blogs of lianxh.cn, and show results in Stata's Results Window in format of Plain text, Markdown or TeX.
 
-p lianxh  module to search blogs of lianxh.cn 
+p lianxh 

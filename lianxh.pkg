@@ -1,4 +1,4 @@
-d 'LIANXH': module to Search and share Stata resources and blogs within Stata Command Window
+d 'LIANXH': module to search and share Stata resources and blogs within Stata Command Window
 d
 d lianxh make it easy for users to search blog posts and useful
 d links from within Stata command window. You can also list
@@ -11,18 +11,18 @@ d KW: resources
 d KW: blogs
 d KW: lianxh.cn
 d
-d Requires: Stata version 14, insheetjson
+d Requires: Stata version 14, insheetjson, libjson, which_version
 d
-d Distribution-Date: 20231116
+d Distribution-Date: 20231117
 d version: 1.2
 d
-d Author: Lian Yu-jun, Lingnan College, Sun Yat-Sen University, China
+d Author: Yujun Lian, Lingnan College, Sun Yat-Sen University, China
 d Support: email arlionn@@163.com
 d
-d Author:  Junjie Kang , Lingnan College, Sun Yat-Sen University, China
+d Author: Junjie Kang , Lingnan College, Sun Yat-Sen University, China
 d Support: email 642070192@@qq.com
 d
-d Author: Qingqing Liu , Lingnan College, Sun Yat-Sen University, China
+d Author: Ruihan Liu , Lingnan College, Sun Yat-Sen University, China
 d Support: email 2428172451@@qq.com.
 d
 d Github: https://github.com/arlionn/lianxh

@@ -8,11 +8,33 @@
 
 ## 2. Installation
 
+There are two methods to install the newest version of `lianxh`. 
+
+### M1
+The first one is using `cnssc` command:
+```stata
+ssc install cnssc, replace
+cnssc install lianxh, replace
+```
+Your can type `which lianxh` to check if the newest version is installed:
+```stata
+. which lianxh
+D:\stata\plus\l\lianxh.ado
+*! version 1.2  16nov2023  
+*! version 1.1  11apr2021
+*! Yujun Lian  arlionn@163.com
+```
+
+### M2
+Here is the second method. 
+
 Paste the following command into the Stata command window to install:
 
 ```stata
 net install lianxh, from("https://gitee.com/arlionn/lianxh/raw/master/src/") replace
 ```
+
+### Help documents
 There are many examples in help file:
 ```stata
 . help lianxh     // English version

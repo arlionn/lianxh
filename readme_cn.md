@@ -1,7 +1,7 @@
  
 > `lianxh` 命令：在 Stata 里看推文 (**update:** `2023/11/17 23:20`)
 
-[English Version]()
+[English Version](https://github.com/arlionn/lianxh/blob/main/README.md)
 
 ## 1. 简介
 

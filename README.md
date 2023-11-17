@@ -1,6 +1,6 @@
 > `lianxh` Command: Viewing Tweets of [lianxh.cn](https://www.lianxh.cn) in Stata (**update:** `2023/11/17 23:20`)
 
-[中文版]()
+[中文版](https://github.com/arlionn/lianxh/blob/main/readme_cn.md)
 
 ## 1. Introduction
 

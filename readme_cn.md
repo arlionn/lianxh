@@ -12,10 +12,8 @@
 有两种方法可以安装 `lianxh` 的最新版本。
 
 ### 方法1
-第一种方法是使用 `cnssc` 命令：
 ```stata
-ssc install cnssc, replace
-cnssc install lianxh, replace
+ssc install lianxh, replace
 ```
 你可以输入 which lianxh 来检查是否安装了最新版本：
 ```stata
@@ -24,11 +22,6 @@ D:\stata\plus\l\lianxh.ado
 *! version 1.2  16nov2023  
 *! version 1.1  11apr2021
 *! Yujun Lian  arlionn@163.com
-```
-### 方法2
-在 Stata 命令窗口中贴入如下命令即可安装：
-```stata
-net install lianxh, from("https://gitee.com/arlionn/lianxh/raw/master/src/") replace  
 ```
 
 ### 帮助文件

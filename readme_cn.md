@@ -9,12 +9,10 @@
 
 ## 2. 安装
 
-有两种方法可以安装 `lianxh` 的最新版本。
-
-### 方法1
 ```stata
 ssc install lianxh, replace
 ```
+
 你可以输入 which lianxh 来检查是否安装了最新版本：
 ```stata
 . which lianxh
